@@ -35,13 +35,13 @@ range_name = "'Infoo ja osallistujat'!C66:Q86"
 
 def signup_is_live():
     current_time = datetime.now()
-    target_time = datetime(2023, 5, 12, 17, 0, 0)
+    target_time = datetime(2023, 5, 15, 17, 15, 0)
     return current_time > target_time
 
 async def mokki(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if(signup_is_live() != True):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Ilmo ei ole auki. Palaa asiaan 14.5 klo 17")    
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Ilmo ei ole auki. Palaa asiaan 15.5 klo 17:15")    
     elif(len(args) < 1):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Kerro kuka olet '/mokille <mökkeilijän nimi>'")
     elif(update.message.chat.type != 'private'):
