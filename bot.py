@@ -84,8 +84,6 @@ async def maksettu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     names = [cell for cell in names if cell]
     names_only = [cell[0] for cell in names if cell]
     name = ' '.join(args)
-    print(name)
-    print(names_only)
     if name not in names_only:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="'{}' ei ole ilmonnut mökille".format(name))
         return
@@ -98,7 +96,6 @@ async def maksettu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     beds = [cell for cell in beds if cell]
     bed_names_only = [cell[0] for cell in beds if cell]
     index = find_index_of_name(names, name)
-    print(index)
     if name in bed_names_only:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="'{}' on jo maksanut".format(name))
         return
