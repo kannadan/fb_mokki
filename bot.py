@@ -215,11 +215,12 @@ if __name__ == '__main__':
     mokki_handler = CommandHandler('mokille', mokki)
     mokki_reply_handler = CallbackQueryHandler(button)
     maksu_handler = CommandHandler('maksettu', maksettu)
-    maksu_handler = CommandHandler('sijoitukset', sijoitukset)
+    sijoitukset_handler = CommandHandler('sijoitukset', sijoitukset)
 
     application.add_handler(mokki_handler)
     application.add_handler(mokki_reply_handler)
     application.add_handler(maksu_handler)
+    application.add_handler(sijoitukset_handler)
 
     
     application.run_polling()
