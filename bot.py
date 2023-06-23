@@ -10,6 +10,8 @@ import os.path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import requests
+import itertools
+from random import shuffle
 
 load_dotenv()
 
@@ -46,11 +48,30 @@ def payment_is_live():
     target_time = datetime(2023, 6, 3, 12, 0, 0)
     return current_time > target_time
 
+def mokki_is_live():
+    current_time = datetime.now()
+    target_time = datetime(2023, 6, 29, 16, 0, 0)
+    return current_time > target_time
+
 def find_index_of_name(list_of_lists, name):
     for index, sublist in enumerate(list_of_lists):
         if sublist[0] == name:
             return index
     return -1  
+
+def time_remaining():
+    current_time = datetime.now()
+    mokki_time = datetime(2023, 6, 29, 16, 0, 0)
+    remaining_time = mokki_time - current_time
+
+    # Extract days, hours, minutes, and seconds from the remaining time
+    days = remaining_time.days
+    hours, remainder = divmod(remaining_time.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    # Construct the string with the remaining time
+    time_string = f"Mökkiin aikaa: {days} päivää, {hours} tuntia, {minutes} minuuttia, ja {seconds} sekunttia"
+    return time_string
 
 def find_player(players, name):
     for player in players:
@@ -67,7 +88,64 @@ def get_players():
         print(f"Error: {e}")
         return None
 
-async def mokki(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def create_fair_games(players, numb_games):
+
+    # Generate all possible combinations of two teams
+    shuffle(players)
+    team_combinations = itertools.combinations(players, 3)
+    ready_teams = []
+    for i in range(numb_games):
+        min_score_difference = 5000
+        fair_teams = None
+        # Find the combination with minimum score difference
+        for team in team_combinations:
+            team1 = team
+            rest_of_players = [p for p in players if p not in team1]
+            team_combinations2 = itertools.combinations(rest_of_players, 3)
+            for team2 in team_combinations2:
+                team1_average_score = sum(player["score"] for player in team1) / 3
+                team2_average_score = sum(player["score"] for player in team2) / 3
+
+                score_difference = abs(team1_average_score - team2_average_score)
+                if score_difference < min_score_difference:
+                    min_score_difference = score_difference
+                    fair_teams = (team1, team2)
+        team1_average_score = sum(player["score"] for player in fair_teams[0]) / 3
+        team2_average_score = sum(player["score"] for player in fair_teams[1]) / 3
+
+        score_difference = abs(team1_average_score - team2_average_score)
+        ready_teams.append(fair_teams)
+        players = [p for p in players if p not in fair_teams[0] and p not in fair_teams[1]]
+        if len(rest_of_players) < 6:
+            return ready_teams
+        team_combinations = itertools.combinations(players, 3)
+    return ready_teams
+
+def create_random_games(players, numb_games):
+    shuffle(players)
+    result = []
+    for i in range(numb_games):
+        if len(players) < 6:
+            break
+        team1 = [players.pop(0), players.pop(0), players.pop(0)]
+        team2 = [players.pop(0), players.pop(0), players.pop(0)]
+        result.append((team1, team2))
+    return result
+
+def get_teams_string(games):
+    result_string = ""
+    for game in games:
+        team1 = game[0]
+        team2 = game[1]
+        team1_average_score = round(sum(player["score"] for player in team1) / 3)
+        team2_average_score = round(sum(player["score"] for player in team2) / 3)
+
+        result_string += f"{team1[0]['name']}, {team1[1]['name']}, {team1[2]['name']}\n ({team1_average_score}) --vs-- ({team2_average_score})\n{team2[0]['name']}, {team2[1]['name']}, {team2[2]['name']}\n\n"
+    return result_string
+
+
+
+async def mokki_ilmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if(signup_is_live() != True):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Ilmo ei ole auki. Palaa asiaan 15.5 klo 17:15")    
@@ -81,6 +159,12 @@ async def mokki(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         context.user_data['user_param'] = args
         await update.message.reply_text("Haluatko varmasti lähteä mökille? Ilmoittautuminen on sitovaa", reply_markup=reply_markup)
+
+async def mokki_alkaa(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if mokki_is_live() is False:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=time_remaining())    
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Mökkiin aikaa: Mökki on jo, miksi kyselet etkä pelaa")
 
 async def maksettu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -165,7 +249,48 @@ async def sijoitukset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return_text += '{}. {} - {} ({})\n'.format(index + 1, player['name'], player['score'], player['change'])
     await context.bot.send_message(chat_id=update.effective_chat.id, text=return_text)
 
-    
+async def create_teams(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    numb_teams = 3
+    if len(args) > 0:
+        try:
+            numb_teams = int(args[0])
+            if numb_teams < 1 or numb_teams > 3:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="Ensimmäisen argumentin pitää olla numero 1|2|3")
+                return    
+        except ValueError:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Ensimmäisen argumentin pitää olla numero 1|2|3")
+            return
+    if len(args) == 2 and args[1] != "rand":
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="toinen argumentti voi olla 'rand' randomeille tiimeille")
+        return
+    signups = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=score_range
+        ).execute()
+    names = signups.get('values', [])
+    names = [cell for cell in names if cell]
+    names_only = [cell[0] for cell in names if cell]
+    players = get_players()
+    result = []
+    for index, name in enumerate(names_only):
+        player = find_player(players, name)
+        original = 0
+        try:
+            original = int(names[index][5])
+        except ValueError:
+            pass
+        if player == -1:
+            result.append({'name': name, 'score': 0})
+        else:
+            result.append(player)
+    if len(args) == 2:
+        games = create_random_games(result, numb_teams)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=get_teams_string(games))
+    else:
+        games = create_fair_games(result, numb_teams)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=get_teams_string(games))
+    # await context.bot.send_message(chat_id=update.effective_chat.id, text=return_text)
             
 
 async def button(update: Update, context: CallbackContext):
@@ -212,15 +337,19 @@ async def button(update: Update, context: CallbackContext):
 if __name__ == '__main__':
     application = ApplicationBuilder().token(token).build()
     
-    mokki_handler = CommandHandler('mokille', mokki)
-    mokki_reply_handler = CallbackQueryHandler(button)
+    # mokki_handler = CommandHandler('mokille', mokki_ilmo)
+    # mokki_reply_handler = CallbackQueryHandler(button)
     maksu_handler = CommandHandler('maksettu', maksettu)
     sijoitukset_handler = CommandHandler('sijoitukset', sijoitukset)
+    aika_handler = CommandHandler('mokki', mokki_alkaa)
+    tiimi_handler = CommandHandler('tiimit', create_teams)
 
-    application.add_handler(mokki_handler)
-    application.add_handler(mokki_reply_handler)
+    # application.add_handler(mokki_handler)
+    # application.add_handler(mokki_reply_handler)
     application.add_handler(maksu_handler)
     application.add_handler(sijoitukset_handler)
+    application.add_handler(aika_handler)
+    application.add_handler(tiimi_handler)
 
     
     application.run_polling()
