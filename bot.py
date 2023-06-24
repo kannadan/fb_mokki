@@ -292,6 +292,22 @@ async def create_teams(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=get_teams_string(games))
     # await context.bot.send_message(chat_id=update.effective_chat.id, text=return_text)
             
+async def kys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        response = requests.get("https://v2.jokeapi.dev/joke/Dark?blacklistFlags=racist")
+        joke = response.json()
+        joke_string = ""
+        if joke["type"] == "single":
+            joke_string = joke["joke"]
+        elif joke["type"] == "twopart":
+            joke_string = joke["setup"] + "\n\n" + joke["delivery"]
+        else:
+            joke_string = "Jotain meni vikaan"
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=joke_string)
+    except requests.exceptions.RequestException as e:
+        print(f"Error: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Kyssäsin")
+
 
 async def button(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -343,6 +359,7 @@ if __name__ == '__main__':
     sijoitukset_handler = CommandHandler('sijoitukset', sijoitukset)
     aika_handler = CommandHandler('mokki', mokki_alkaa)
     tiimi_handler = CommandHandler('tiimit', create_teams)
+    kys_handler = CommandHandler('kys', kys)
 
     # application.add_handler(mokki_handler)
     # application.add_handler(mokki_reply_handler)
@@ -350,6 +367,7 @@ if __name__ == '__main__':
     application.add_handler(sijoitukset_handler)
     application.add_handler(aika_handler)
     application.add_handler(tiimi_handler)
+    application.add_handler(kys_handler)
 
     
     application.run_polling()
