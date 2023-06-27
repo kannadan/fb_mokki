@@ -88,6 +88,15 @@ def get_players():
         print(f"Error: {e}")
         return None
 
+def get_games():
+    try:
+        response = requests.get("https://api.frisbeer.win/API/games/")
+        response.raise_for_status()  # Raise an exception for non-2xx status codes
+        return response.json()  # Return the response content parsed as JSON
+    except requests.exceptions.RequestException as e:
+        print(f"Error: {e}")
+        return None
+        
 def create_fair_games(players, numb_games):
 
     # Generate all possible combinations of two teams
@@ -143,7 +152,11 @@ def get_teams_string(games):
         result_string += f"{team1[0]['name']}, {team1[1]['name']}, {team1[2]['name']}\n ({team1_average_score}) --vs-- ({team2_average_score})\n{team2[0]['name']}, {team2[1]['name']}, {team2[2]['name']}\n\n"
     return result_string
 
-
+def is_mokki_game(game):
+    mokki_start = datetime(2023, 6, 29, 16, 0, 0)
+    mokki_end = datetime(2023, 7, 2, 12, 0, 0)
+    game_time = datetime.strptime(game["date"], "%Y-%m-%dT%H:%M:%SZ")
+    return mokki_end > game_time and mokki_start < game_time and game["state"] == 3
 
 async def mokki_ilmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -291,6 +304,34 @@ async def create_teams(update: Update, context: ContextTypes.DEFAULT_TYPE):
         games = create_fair_games(result, numb_teams)
         await context.bot.send_message(chat_id=update.effective_chat.id, text=get_teams_string(games))
     # await context.bot.send_message(chat_id=update.effective_chat.id, text=return_text)
+
+async def kaljaa(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    signups = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=score_range
+        ).execute()
+    names = signups.get('values', [])
+    names = [cell for cell in names if cell]
+    names_only = [cell[0] for cell in names if cell]
+    players = get_players()
+    games = get_games()
+    result = []
+    mokki_players = []
+    for index, name in enumerate(names_only):
+        player = find_player(players, name)
+        player["kaljaa"] = 0
+        mokki_players.append(player)
+    for game in games:
+        if(is_mokki_game(game)):
+            for player in game["players"]:
+                found_player = list(filter(lambda mokkilainen: mokkilainen["name"] == player["name"], mokki_players))
+                if len(found_player) > 0:
+                    found_player[0]["kaljaa"] += 2.66666 * ( game["team1_score"] + game["team2_score"] )
+    mokki_players = sorted(mokki_players, key=lambda x: x['kaljaa'], reverse=True)
+    return_text = ''
+    for index, player in enumerate(mokki_players):
+        return_text += '{}. {} - {}\n'.format(index + 1, player['name'], round(player['kaljaa'], 2))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=return_text)
             
 async def kys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -360,6 +401,7 @@ if __name__ == '__main__':
     aika_handler = CommandHandler('mokki', mokki_alkaa)
     tiimi_handler = CommandHandler('tiimit', create_teams)
     kys_handler = CommandHandler('kys', kys)
+    kalja_handler = CommandHandler('kaljaa', kaljaa)
 
     # application.add_handler(mokki_handler)
     # application.add_handler(mokki_reply_handler)
@@ -368,6 +410,7 @@ if __name__ == '__main__':
     application.add_handler(aika_handler)
     application.add_handler(tiimi_handler)
     application.add_handler(kys_handler)
+    application.add_handler(kalja_handler)
 
     
     application.run_polling()
