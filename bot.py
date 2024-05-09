@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 import requests
 import itertools
 from random import shuffle
+import pytz
 
 load_dotenv()
 
@@ -33,24 +34,32 @@ service = build('sheets', 'v4', credentials=creds)
 # Define the spreadsheet ID and range of cells to read
 spreadsheet_id = os.getenv('sheet_id')
 range_name = "'Infoo ja osallistujat'!C66:Q86"
-bed_range = "'Infoo ja osallistujat'!C110:G127"
-score_range = "'Infoo ja osallistujat'!AI46:AO63"
+bed_range = "'Infoo ja osallistujat'!C110:G131"
+score_range = "'Infoo ja osallistujat'!AN28:AT45"
 
 
+# Define the time zone
+finnish_tz = pytz.timezone('Europe/Helsinki')
+
+# Define the signup, payment, mokki start, and mokki end times in Finnish time
+signup_time = finnish_tz.localize(datetime(2024, 5, 10, 13, 37, 0))
+payment_time = finnish_tz.localize(datetime(2024, 6, 3, 13, 37, 0))
+mokki_time = finnish_tz.localize(datetime(2024, 7, 19, 16, 0, 0))
+mokki_end = finnish_tz.localize(datetime(2024, 7, 21, 12, 0, 0))
 
 def signup_is_live():
-    current_time = datetime.now()
-    target_time = datetime(2023, 5, 15, 17, 15, 0)
+    current_time = datetime.now(finnish_tz)
+    target_time = signup_time
     return current_time > target_time
 
 def payment_is_live():
-    current_time = datetime.now()
-    target_time = datetime(2023, 6, 3, 12, 0, 0)
+    current_time = datetime.now(finnish_tz)
+    target_time = payment_time
     return current_time > target_time
 
 def mokki_is_live():
-    current_time = datetime.now()
-    target_time = datetime(2023, 6, 29, 16, 0, 0)
+    current_time = datetime.now(finnish_tz)
+    target_time = mokki_time
     return current_time > target_time
 
 def find_index_of_name(list_of_lists, name):
@@ -60,8 +69,7 @@ def find_index_of_name(list_of_lists, name):
     return -1  
 
 def time_remaining():
-    current_time = datetime.now()
-    mokki_time = datetime(2023, 6, 29, 16, 0, 0)
+    current_time = datetime.now(finnish_tz)
     remaining_time = mokki_time - current_time
 
     # Extract days, hours, minutes, and seconds from the remaining time
@@ -153,25 +161,24 @@ def get_teams_string(games):
     return result_string
 
 def is_mokki_game(game):
-    mokki_start = datetime(2023, 6, 29, 16, 0, 0)
-    mokki_end = datetime(2023, 7, 2, 12, 0, 0)
-    game_time = datetime.strptime(game["date"], "%Y-%m-%dT%H:%M:%SZ")
+    mokki_start = mokki_time
+    game_time = datetime.strptime(game["date"], "%Y-%m-%dT%H:%M:%SZ").astimezone(finnish_tz)
     return mokki_end > game_time and mokki_start < game_time and game["state"] == 3
 
 async def mokki_ilmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if(signup_is_live() != True):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Ilmo ei ole auki. Palaa asiaan 15.5 klo 17:15")    
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Ilmo ei ole auki. Palaa asiaan 10.5 klo 13:37")    
     elif(len(args) < 1):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Kerro kuka olet '/mokille <mökkeilijän nimi>'")
     elif(update.message.chat.type != 'private'):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Pistätkö yksityisviestiä")
     else:
-        keyboard = [[InlineKeyboardButton("Kyllä", callback_data='kylla'),
-                 InlineKeyboardButton("Ei", callback_data='ei')]]
+        keyboard = [[InlineKeyboardButton("Kyllä", callback_data='auto'),
+                 InlineKeyboardButton("Ei", callback_data='ei_auto')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         context.user_data['user_param'] = args
-        await update.message.reply_text("Haluatko varmasti lähteä mökille? Ilmoittautuminen on sitovaa", reply_markup=reply_markup)
+        await update.message.reply_text("Onko käytössäsi auto mökki kyyteihin", reply_markup=reply_markup)
 
 async def mokki_alkaa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mokki_is_live() is False:
@@ -182,7 +189,7 @@ async def mokki_alkaa(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def maksettu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if(payment_is_live() != True):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Maksu ei ole auki. Palaa asiaan 3.6 klo 12:00")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Maksu ei ole auki.")
         return
     if(len(args) < 1):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Kerro kuka olet '/maksettu <mökkeilijän nimi>'")
@@ -265,6 +272,9 @@ async def sijoitukset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def create_teams(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     numb_teams = 3
+    if mokki_is_live() is False:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Ei tehdä tiimejä ennen mökkiä")
+        return    
     if len(args) > 0:
         try:
             numb_teams = int(args[0])
@@ -319,8 +329,11 @@ async def kaljaa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mokki_players = []
     for index, name in enumerate(names_only):
         player = find_player(players, name)
-        player["kaljaa"] = 0
-        mokki_players.append(player)
+        if player == -1:
+            mokki_players.append({'name': name, 'score': 'ei löytynyt', 'kaljaa': 0})
+        else:
+            player["kaljaa"] = 0
+            mokki_players.append(player)
     for game in games:
         if(is_mokki_game(game)):
             for player in game["players"]:
@@ -354,7 +367,21 @@ async def button(update: Update, context: CallbackContext):
     query = update.callback_query
     user_param = context.user_data.get('user_param')
     name = ' '.join(user_param)
-    if query.data == 'kylla':
+    if query.data == 'auto' or query.data == 'ei_auto':
+        keyboard = [[InlineKeyboardButton("Kyllä", callback_data='torstai'),
+                 InlineKeyboardButton("En", callback_data='ei_torstai')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        context.user_data['user_param'] = user_param
+        context.user_data['auto'] = 'kyllä' if query.data == 'auto' else 'ei'
+        await query.edit_message_text(text="Lähdetkö mökille jo torstaina jos lähtijöitä on yli pelillinen", reply_markup=reply_markup)
+    elif query.data == 'torstai' or query.data == 'ei_torstai':
+        keyboard = [[InlineKeyboardButton("Kyllä", callback_data='kylla'),
+                 InlineKeyboardButton("Ei", callback_data='ei')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        context.user_data['user_param'] = user_param
+        context.user_data['torstai'] = 'x' if query.data == 'torstai' else ''
+        await query.edit_message_text(text="Haluatko varmasti lähteä mökille? Ilmoittautuminen on sitovaa", reply_markup=reply_markup)
+    elif query.data == 'kylla':
         # Make a request to read the data from the spreadsheet
         signups = service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
@@ -368,7 +395,9 @@ async def button(update: Update, context: CallbackContext):
                 i = i + [''] * (15 - len(i))
         names_only = [cell[0] for cell in names if cell]
         if name not in names_only:
-            names.append([name])
+            auto = context.user_data.get('auto')
+            torstai = context.user_data.get('torstai')
+            names.append([name, '', '', '', '', auto, '', 'ei', '', '', '', '', '', '', torstai])
         else:
             reply = name + ' on jo mokillä'
             await query.edit_message_text(text=reply)
@@ -394,8 +423,8 @@ async def button(update: Update, context: CallbackContext):
 if __name__ == '__main__':
     application = ApplicationBuilder().token(token).build()
     
-    # mokki_handler = CommandHandler('mokille', mokki_ilmo)
-    # mokki_reply_handler = CallbackQueryHandler(button)
+    mokki_handler = CommandHandler('mokille', mokki_ilmo)
+    mokki_reply_handler = CallbackQueryHandler(button)
     maksu_handler = CommandHandler('maksettu', maksettu)
     sijoitukset_handler = CommandHandler('sijoitukset', sijoitukset)
     aika_handler = CommandHandler('mokki', mokki_alkaa)
@@ -403,8 +432,8 @@ if __name__ == '__main__':
     kys_handler = CommandHandler('kys', kys)
     kalja_handler = CommandHandler('kaljaa', kaljaa)
 
-    # application.add_handler(mokki_handler)
-    # application.add_handler(mokki_reply_handler)
+    application.add_handler(mokki_handler)
+    application.add_handler(mokki_reply_handler)
     application.add_handler(maksu_handler)
     application.add_handler(sijoitukset_handler)
     application.add_handler(aika_handler)
@@ -414,3 +443,12 @@ if __name__ == '__main__':
 
     
     application.run_polling()
+
+
+# mokille - ilmoittautuminen mökille
+# maksettu - ilmoita että ole maksanut mökin
+# sijoitukset - lista score muutoksista mökin aikana
+# mokki - koska mökki on
+# tiimit - /tiimit <pelien määrä> <rand>
+# kys - ???
+# kaljaa - Mökillä juodut kaljat
