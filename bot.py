@@ -35,7 +35,7 @@ service = build('sheets', 'v4', credentials=creds)
 spreadsheet_id = os.getenv('sheet_id')
 range_name = "'Infoo ja osallistujat'!C66:Q86"
 bed_range = "'Infoo ja osallistujat'!C110:G131"
-score_range = "'Infoo ja osallistujat'!AN28:AT45"
+score_range = "'Infoo ja osallistujat'!AN28:AT46"
 
 
 # Define the time zone
